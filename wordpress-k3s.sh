@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # WordPress K3s Deployment Script
-# This script deploys WordPress on K3s with persistent storage, SSL, and ingress
+# This script deploys WordPress on K3s with persistent storage and HTTP ingress
 #
 # Usage: ./wordpress-k3s-install.sh [DOMAIN] [NAMESPACE]
 # Example: ./wordpress-k3s-install.sh blog.example.com my-blog
@@ -30,8 +30,8 @@ show_usage() {
     echo "Features:"
     echo "  • Persistent storage with PVC"
     echo "  • MariaDB database"
-    echo "  • Nginx ingress controller"
-    echo "  • SSL with cert-manager (optional)"
+    echo "  • Traefik ingress controller"
+    echo "  • HTTP domain mapping"
     echo "  • Resource limits and requests"
     echo ""
     exit 1
@@ -62,7 +62,7 @@ fi
 # Configuration variables
 DOMAIN="$1"
 NAMESPACE="${2:-wordpress-$(echo $DOMAIN | tr '.' '-' | head -c 20)}"
-WORDPRESS_DIR="/home/frappe/k3s-wordpress-${DOMAIN//\./-}"
+WORDPRESS_DIR="/home/ubuntu/k3s-wordpress-${DOMAIN//\./-}"
 DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
 WP_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
 
@@ -304,7 +304,7 @@ EOF
 sudo kubectl apply -f wordpress.yaml
 
 # Step 8: Create Ingress
-print_status "Creating ingress for domain: $DOMAIN"
+print_status "Creating HTTP ingress for domain: $DOMAIN"
 cat > ingress.yaml << EOF
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -312,14 +312,8 @@ metadata:
   name: wordpress-ingress
   namespace: $NAMESPACE
   annotations:
-    kubernetes.io/ingress.class: "traefik"
-    traefik.ingress.kubernetes.io/redirect-entry-point: https
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.entrypoints: web
 spec:
-  tls:
-  - hosts:
-    - $DOMAIN
-    secretName: wordpress-tls
   rules:
   - host: $DOMAIN
     http:
@@ -350,7 +344,7 @@ print_success "🎉 WordPress K3s Deployment Complete!"
 echo "========================================="
 echo ""
 print_status "📋 Deployment Summary:"
-echo "  • Domain: https://$DOMAIN"
+echo "  • Domain: http://$DOMAIN"
 echo "  • Namespace: $NAMESPACE"
 echo "  • Deployment Directory: $WORDPRESS_DIR"
 echo "  • Database: MariaDB with persistent storage"
@@ -383,8 +377,8 @@ echo ""
 
 print_status "🌐 Next Steps:"
 echo "  1. Ensure DNS points $DOMAIN to your server IP"
-echo "  2. Wait for SSL certificate to be issued (may take a few minutes)"
-echo "  3. Visit https://$DOMAIN to complete WordPress setup"
+echo "  2. Add '$DOMAIN' to your local hosts file if testing locally"
+echo "  3. Visit http://$DOMAIN to complete WordPress setup"
 echo "  4. Use generated admin password: $WP_PASSWORD"
 echo ""
 
@@ -392,11 +386,14 @@ echo ""
 cat > credentials.txt << EOF
 WordPress K3s Deployment - $DOMAIN
 Generated: $(date)
-
-Domain: https://$DOMAIN
+Domain: http://$DOMAIN
 Namespace: $NAMESPACE
 Database Password: $DB_PASSWORD
 WordPress Admin Password: $WP_PASSWORD
+Server IP: $(curl -s http://checkip.amazonaws.com || echo "Unable to get IP")
+
+Add to hosts file for local testing:
+$(curl -s http://checkip.amazonaws.com || echo "SERVER_IP") $DOMAIN
 
 Useful Commands:
 kubectl get pods -n $NAMESPACE
@@ -405,4 +402,16 @@ kubectl delete namespace $NAMESPACE
 EOF
 
 print_status "💾 Credentials saved to: $WORDPRESS_DIR/credentials.txt"
+
+# Get server IP for hosts file entry
+SERVER_IP=$(curl -s http://checkip.amazonaws.com 2>/dev/null || echo "YOUR_SERVER_IP")
+echo ""
+print_status "🔧 For local testing, add this to your hosts file:"
+echo "  $SERVER_IP $DOMAIN"
+echo ""
+print_status "📝 Hosts file locations:"
+echo "  • Windows: C:\\Windows\\System32\\drivers\\etc\\hosts"
+echo "  • Mac/Linux: /etc/hosts"
+echo ""
+
 print_success "Deployment completed successfully! 🚀"
